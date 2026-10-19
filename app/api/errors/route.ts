@@ -3,6 +3,7 @@
  *
  * Ingest endpoint for batched frontend error reports.
  *
+ * - Enforces IP-based rate limiting (max 10 error reports/requests per minute per IP)
  * - Validates the body strictly against the supported schema
  * - Rejects malformed or oversized payloads
  * - Never logs the raw payload (it is user-adjacent even after scrubbing)
@@ -16,6 +17,7 @@ import { storeReports } from '@/lib/errorReporting/store';
 import { normalizeRoute } from '@/lib/rum/normalize';
 import { VALID_ERROR_SOURCES } from '@/lib/errorReporting/types';
 import type { ErrorReport, ErrorSource } from '@/lib/errorReporting/types';
+import { checkRateLimit } from '@/lib/utils/errorsRateLimit';
 
 /** Maximum reports accepted per request. */
 const MAX_BATCH_SIZE = 20;
@@ -62,6 +64,23 @@ const batchSchema = z
 
 export async function POST(request: Request) {
   try {
+    const forwarded = request.headers.get('x-forwarded-for');
+    const realIp = request.headers.get('x-real-ip');
+    const ip = forwarded ? forwarded.split(',')[0].trim() : realIp || '127.0.0.1';
+
+    const { allowed, retryAfterSeconds } = checkRateLimit(ip);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too Many Requests' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const contentLength = request.headers.get('content-length');
     if (contentLength && Number(contentLength) > MAX_PAYLOAD_SIZE) {
       return new NextResponse(null, { status: 413 });

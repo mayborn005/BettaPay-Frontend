@@ -7,18 +7,27 @@
  *
  * `variant="onboarding"` trims the chrome (no card wrapper) so it sits inside
  * the wizard; `variant="settings"` renders a standalone card.
+ *
+ * The panel body is wrapped in the shared `ErrorBoundary` (#756): a bad API
+ * payload (e.g. an unknown `kybStatus` or a non-array `documents` field) used
+ * to throw during render and take down the whole page. The boundary now
+ * contains the failure to this panel and offers a Retry action that
+ * invalidates the cached query and remounts the body.
  */
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui';
 import { Skeleton } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { useMerchantKyb } from '@/lib/kyc/api';
+import { kybQueryKeys, useMerchantKyb } from '@/lib/kyc/api';
 import { KYB_STATUS_META } from '@/lib/kyc/status';
 import { KYB_DOC_TYPES, REQUIRED_KYB_DOC_TYPES } from '@/lib/kyc/types';
+import { ErrorBoundary, ErrorDisplay } from '@/components/shared';
 import { KybDocumentRow } from './KybDocumentRow';
 import { KybStatusBadge } from './KybStatusBadge';
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface Props {
@@ -28,11 +37,18 @@ interface Props {
   allowSimulatedReview?: boolean;
 }
 
-export function KybDocumentsPanel({
+/**
+ * The data-dependent body. Deliberately extracted from `KybDocumentsPanel` so
+ * an error boundary around it can catch a render throw — a boundary cannot
+ * catch errors thrown by its own render output.
+ */
+function KybDocumentsPanelBody({
   merchantId,
-  variant = 'settings',
-  allowSimulatedReview = false,
-}: Props) {
+  allowSimulatedReview,
+}: {
+  merchantId: string;
+  allowSimulatedReview: boolean;
+}) {
   const { data: kyb, isLoading, error } = useMerchantKyb(merchantId);
   const [simulateReject, setSimulateReject] = useState(false);
 
@@ -40,7 +56,7 @@ export function KybDocumentsPanel({
   const requiredUploaded = REQUIRED_KYB_DOC_TYPES.filter((t) => byType.has(t)).length;
   const statusMeta = KYB_STATUS_META[kyb.kybStatus];
 
-  const body = (
+  return (
     <div className="space-y-4">
       {/* Status summary */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -111,6 +127,45 @@ export function KybDocumentsPanel({
       )}
     </div>
   );
+}
+
+export function KybDocumentsPanel({
+  merchantId,
+  variant = 'settings',
+  allowSimulatedReview = false,
+}: Props) {
+  const queryClient = useQueryClient();
+  const [retryAttempt, setRetryAttempt] = useState(0);
+
+  const handleRetry = () => {
+    // Two-part recovery: drop the (possibly malformed) cached KYB payload so
+    // the remounted body refetches instead of replaying stale data, then
+    // remount the boundary children via resetKey.
+    void queryClient.invalidateQueries({
+      queryKey: kybQueryKeys.profile(merchantId),
+    });
+    setRetryAttempt((n) => n + 1);
+  };
+
+  const body = (
+    <ErrorBoundary
+      resetKey={retryAttempt}
+      fallback={
+        // The settings variant's card chrome sits outside the boundary, so
+        // this in-place fallback fills the same slot for both variants.
+        <ErrorDisplay
+          message="We couldn't load your verification documents."
+          onRetry={handleRetry}
+          retryLabel="Retry"
+        />
+      }
+    >
+      <KybDocumentsPanelBody
+        merchantId={merchantId}
+        allowSimulatedReview={allowSimulatedReview}
+      />
+    </ErrorBoundary>
+  );
 
   if (variant === 'onboarding') {
     return body;
@@ -128,5 +183,40 @@ export function KybDocumentsPanel({
       </CardHeader>
       <CardContent>{body}</CardContent>
     </Card>
+  );
+}
+
+export function KybDocumentsPanel(props: Props) {
+  // Keep this observer outside the boundary so Retry can re-attempt the same
+  // document-status query before asking the boundary to remount its content.
+  const { refetch } = useMerchantKyb(props.merchantId);
+
+  return (
+    <ErrorBoundary
+      fallback={(reset) => (
+        <div className="rounded-lg border border-destructive/30 bg-card p-6" role="alert">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-semibold text-foreground">Unable to load KYB documents</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                The document status could not be loaded. Try again to retry the request.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                refetch();
+                reset();
+              }}
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+    >
+      <KybDocumentsPanelContent {...props} />
+    </ErrorBoundary>
   );
 }

@@ -32,6 +32,7 @@ jest.mock('@tanstack/react-query', () => {
 });
 
 import { useQuery } from '@tanstack/react-query';
+import type { DashboardResponse } from '@/components/admin/performance/performanceFormat';
 
 type MockQueryResult = {
   data: DashboardResponse | undefined;
@@ -40,7 +41,8 @@ type MockQueryResult = {
   refetch: jest.Mock;
 };
 
-const mockUseQuery = useQuery as jest.MockedFunction<typeof useQuery>;
+// Loose mock: each test supplies only the fields the page under test reads.
+const mockUseQuery = useQuery as unknown as jest.Mock;
 
 function createWrapper() {
   const queryClient = new QueryClient({

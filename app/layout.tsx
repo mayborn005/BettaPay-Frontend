@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Fraunces, DM_Sans } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui";
@@ -6,9 +7,16 @@ import { ConditionalAppProviders } from "@/components/providers/ConditionalAppPr
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { SITE_URL } from "@/lib/config";
+import { defaultLocale, getLocaleDirection, isSupportedLocale } from "@/lib/i18n/locales";
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { I18nProvider } from '@/components/i18n/I18nProvider';
 import { TranslationCoveragePanel } from '@/components/i18n/TranslationCoveragePanel';
+import RouteProgress from "@/components/layout/RouteProgress";
+import {
+  DEFAULT_DESCRIPTION,
+  DEFAULT_OG_IMAGE,
+  DEFAULT_TITLE,
+} from "@/lib/metadata";
 
 
 const fraunces = Fraunces({
@@ -25,12 +33,28 @@ const dmSans = DM_Sans({
 });
 
 
-export const metadata: Metadata = {
-  // Resolves relative canonical/openGraph URLs declared by individual pages.
-  metadataBase: new URL(SITE_URL),
-  title: "BettaPay | Non-custodial Merchant Platform",
-  description: "Accept USDC and stablecoins easily across Africa",
-};
+export function generateMetadata(): Metadata {
+  return {
+    metadataBase: new URL(SITE_URL),
+    applicationName: "BettaPay",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    openGraph: {
+      type: "website",
+      locale: "en_US",
+      siteName: "BettaPay",
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
+      images: [DEFAULT_OG_IMAGE],
+    },
+    twitter: {
+      card: "summary",
+      title: DEFAULT_TITLE,
+      description: DEFAULT_DESCRIPTION,
+      images: [DEFAULT_OG_IMAGE.url],
+    },
+  };
+}
 
 
 export default async function RootLayout({
@@ -38,6 +62,11 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Issue #744: seed the document direction from the default locale for SSR.
+  // The active locale is persisted in localStorage (client-only), so
+  // `I18nProvider`/`LanguageSelector` re-sync `dir` after mount / on change;
+  // `suppressHydrationWarning` covers the SSR->client transition for RTL.
+  const documentDirection = getLocaleDirection(defaultLocale);
   // CSRF cookie is now seeded in `middleware.ts` via `ensureCsrfCookieInMiddleware`
   // (using NextResponse.cookies.set, which is allowed in middleware). The
   // previous `await ensureCsrfCookie()` call here triggered
@@ -49,6 +78,12 @@ export default async function RootLayout({
   // empty string (which it treats as valid config and logs errors for). The
   // login page (app/auth/login/page.tsx) shows a disabled "Google login
   // unavailable" fallback with tooltip + dev console.warn in this state.
+
+  // Resolve the document lang attribute from the locale cookie set by the
+  // locale middleware. Falls back to "en" so SSR always produces valid HTML.
+  const cookieStore = await cookies();
+  const rawLocale = cookieStore.get('NEXT_LOCALE')?.value;
+  const htmlLang = rawLocale && isSupportedLocale(rawLocale) ? rawLocale : 'en';
 
   const inner = (
     <I18nProvider>
@@ -62,8 +97,9 @@ export default async function RootLayout({
   );
 
   return (
-    <html lang="en" suppressHydrationWarning className={cn("font-sans antialiased", fraunces.variable, dmSans.variable)}>
+    <html lang={htmlLang} dir={documentDirection} suppressHydrationWarning className={cn("font-sans antialiased", fraunces.variable, dmSans.variable)}>
       <body className="min-h-screen bg-background text-foreground">
+        <RouteProgress />
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 rounded-md bg-background px-4 py-2 text-sm font-medium text-foreground shadow-md ring-2 ring-ring"

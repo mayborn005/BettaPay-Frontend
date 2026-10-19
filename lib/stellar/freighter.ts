@@ -39,6 +39,13 @@ export class FreighterNetworkMismatchError extends Error {
   }
 }
 
+export class FreighterSigningDeclinedError extends Error {
+  constructor() {
+    super('Transaction was declined in Freighter — no funds were moved. Review the details and try again.');
+    this.name = 'FreighterSigningDeclinedError';
+  }
+}
+
 const FREIGHTER_NOT_INSTALLED_MSGS = [
   'freighter is not installed',
   'freighter does not exist',
@@ -48,9 +55,22 @@ const FREIGHTER_NOT_INSTALLED_MSGS = [
   'freighter api is not available',
 ];
 
+// Freighter rejects sign requests with these strings when the user declines
+// in the popup (4.x wording included).
+const SIGNING_DECLINED_MSGS = [
+  'declined to sign',
+  'refused to sign',
+  'rejected the transaction',
+  'rejected the signing',
+  // Freighter 3.x wording when the user declines the sign popup.
+  'rejected the request to sign',
+];
+
 const USER_CANCELLED_MSGS = [
   'user declined access',
   'user rejected',
+  'the user rejected this request',
+  'user refused to sign this transaction',
   'cancelled',
   'canceled',
   'permission denied',
@@ -59,10 +79,26 @@ const USER_CANCELLED_MSGS = [
 ];
 
 function classifyFreighterError(error: unknown): Error {
+  // Already-mapped application errors must survive a second pass: callers
+  // classify inside `catch` blocks too, and re-classifying would discard the
+  // specific error (e.g. a signing decline) for a broader match.
+  if (
+    error instanceof FreighterNotInstalledError ||
+    error instanceof FreighterCancelledError ||
+    error instanceof FreighterNetworkMismatchError ||
+    error instanceof FreighterSigningDeclinedError
+  ) {
+    return error;
+  }
+
   const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   if (FREIGHTER_NOT_INSTALLED_MSGS.some((k) => msg.includes(k))) {
     return new FreighterNotInstalledError();
+  }
+
+  if (SIGNING_DECLINED_MSGS.some((k) => msg.includes(k))) {
+    return new FreighterSigningDeclinedError();
   }
 
   if (USER_CANCELLED_MSGS.some((k) => msg.includes(k))) {
@@ -70,6 +106,14 @@ function classifyFreighterError(error: unknown): Error {
   }
 
   return error instanceof Error ? error : new Error(String(error));
+}
+
+// Freighter API calls often fail with a raw { error: string } payload instead
+// of a thrown Error (signTransaction/signMessage results). Map those strings
+// to the standardized application errors above so the UI never shows raw
+// extension internals.
+function throwFreighterError(raw: string): never {
+  throw classifyFreighterError(raw);
 }
 
 // Detect whether Freighter is available. This tries a lightweight call and falls back safely.
@@ -162,7 +206,7 @@ export const signWithFreighter = async (xdr: string): Promise<string | null> => 
 
     if (signedTxResp.error) {
       console.error('Freighter sign error', signedTxResp.error);
-      return null;
+      throwFreighterError(signedTxResp.error);
     }
 
     return signedTxResp.signedTxXdr || null;
@@ -181,7 +225,7 @@ export const signChallenge = async (address: string, challenge: string): Promise
 
     if (resp.error) {
       console.error('Freighter sign challenge error', resp.error);
-      return null;
+      throwFreighterError(resp.error);
     }
 
     const sig = resp.signature || resp.signedMessage;

@@ -3,13 +3,17 @@
 import { useCallback, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
-import { MerchantSidebar, MobileNavDrawer, Topbar, MobileBottomNav } from "@/components/layout";
+import { MerchantSidebar } from "@/components/layout/MerchantSidebar";
+import { MobileNavDrawer } from "@/components/layout/MobileNavDrawer";
+import { Topbar } from "@/components/layout/Topbar";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { ThemePreferenceSync } from "@/components/layout/ThemePreferenceSync";
 import { merchantNavItems } from "@/lib/navigation/merchantNav";
 import { PageTransition, ErrorBoundary } from "@/components/shared";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { useWalletStore } from "@/lib/store/walletStore";
 import { useAuthStore } from "@/lib/store/authStore";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useSessionTimeout } from "@/lib/hooks/useSessionTimeout";
 import { useRateLimitCountdown } from "@/lib/hooks/useRateLimitCountdown";
 import { SessionTimeoutModal } from "@/components/SessionTimeoutModal";
@@ -33,7 +37,7 @@ export default function MerchantLayout({
 
   const handleTimeoutLogout = useCallback(() => {
     logout();
-    router.push('/auth/login');
+    router.push(ROUTES.LOGIN);
   }, [logout, router]);
 
   const { showWarning, secondsRemaining, isExtending, extendSession } = useSessionTimeout({
@@ -46,7 +50,7 @@ export default function MerchantLayout({
     const success = await extendSession();
     if (!success) {
       logout();
-      router.push('/auth/login');
+      router.push(ROUTES.LOGIN);
     }
   }, [logout, router, extendSession]);
 
@@ -68,7 +72,7 @@ export default function MerchantLayout({
   ), []);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen h-dvh overflow-hidden bg-background">
       <ThemePreferenceSync />
       <MerchantSidebar />
 

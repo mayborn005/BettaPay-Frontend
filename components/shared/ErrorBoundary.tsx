@@ -4,19 +4,29 @@ import { Component, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { captureException } from "@/lib/errorReporting";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const buttonBase =
   "inline-flex items-center justify-center rounded-lg px-4 h-11 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+type Fallback = ReactNode | ((reset: () => void) => ReactNode);
 
 interface ErrorBoundaryProps {
   children: ReactNode;
   pathname?: string;
   fallback?: ReactNode;
+  /**
+   * Increment (or otherwise change) to remount the children with a clean
+   * state after an error — the React-recommended way for a parent to offer a
+   * programmatic "reset the boundary" action.
+   */
+  resetKey?: string | number;
 }
 
 interface ErrorBoundaryState {
   hasError: boolean;
   pathname?: string;
+  resetKey?: string | number;
 }
 
 /**
@@ -30,6 +40,7 @@ export class ErrorBoundary extends Component<
   state: ErrorBoundaryState = {
     hasError: false,
     pathname: this.props.pathname,
+    resetKey: this.props.resetKey,
   };
 
   static getDerivedStateFromError(): ErrorBoundaryState {
@@ -41,7 +52,11 @@ export class ErrorBoundary extends Component<
     state: ErrorBoundaryState,
   ): ErrorBoundaryState | null {
     if (props.pathname !== state.pathname) {
-      return { hasError: false, pathname: props.pathname };
+      return { hasError: false, pathname: props.pathname, resetKey: props.resetKey };
+    }
+    if (props.resetKey !== state.resetKey) {
+      // Parent-triggered reset: remount the children with a clean state.
+      return { hasError: false, resetKey: props.resetKey };
     }
     return null;
   }
@@ -58,13 +73,19 @@ export class ErrorBoundary extends Component<
   }
 
   handleReset = () => {
+    this.props.onReset?.();
     // Reset the boundary so the children get a fresh render attempt.
     this.setState({ hasError: false });
   };
 
   render() {
     if (!this.state.hasError) return this.props.children;
-    if (this.props.fallback) return this.props.fallback;
+
+    if (this.props.fallback) {
+      return typeof this.props.fallback === "function"
+        ? this.props.fallback(this.handleReset)
+        : this.props.fallback;
+    }
 
     return (
       <div className="flex min-h-[60vh] items-center justify-center p-4">
@@ -92,10 +113,10 @@ export class ErrorBoundary extends Component<
               className={`${buttonBase} gap-2 bg-primary text-primary-foreground hover:bg-primary/80`}
             >
               <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Try Again
+              {this.props.retryLabel ?? "Try Again"}
             </button>
             <Link
-              href="/dashboard"
+              href={ROUTES.DASHBOARD}
               className={`${buttonBase} border border-border bg-background hover:bg-muted hover:text-foreground`}
             >
               Go to Dashboard
@@ -112,7 +133,7 @@ export function ErrorBoundaryWithRouter({
   fallback,
 }: {
   children: ReactNode;
-  fallback?: ReactNode;
+  fallback?: Fallback;
 }) {
   const pathname =
     typeof window !== "undefined" ? window.location.pathname : undefined;

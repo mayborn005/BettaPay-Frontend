@@ -34,7 +34,7 @@ function AvatarImage({ className, ...props }: AvatarPrimitive.Image.Props) {
         <Image
           fill
           sizes="40px"
-          src={props.src}
+          src={props.src ?? ""}
           alt={props.alt ?? ""}
         />
       }
@@ -55,7 +55,7 @@ function AvatarFallback({
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
-        "flex size-full items-center justify-center rounded-full bg-muted text-sm text-muted-foreground group-data-[size=sm]/avatar:text-xs",
+        "flex size-full items-center justify-center rounded-full bg-muted font-medium text-muted-foreground select-none text-sm leading-none group-data-[size=sm]/avatar:text-[10px] group-data-[size=lg]/avatar:text-base",
         className
       )}
       {...props}
